@@ -1,0 +1,68 @@
+# Example: my diploma architecture
+
+services:
+  api-profile:
+    max_client_conn: 128
+    request_process_time: 3ms
+    response_process_time: 3ms
+  api-auth:
+    max_client_conn: 128
+    request_process_time: 1ms
+    response_process_time: 1ms
+    parallel: 8
+  profile:
+    max_client_conn: 128
+    request_process_time: 3ms
+    response_process_time: 0s
+    parallel: 8
+  auth:
+    max_client_conn: 128
+    request_process_time: 1ms
+    response_process_time: 0s
+    parallel: 8
+  storage:
+    max_client_conn: 128
+    request_process_time: 1ms
+    response_process_time: 0s
+    parallel: 8
+  course-parser:
+    max_client_conn: 128
+    request_process_time: 100ms
+    response_process_time: 0s
+    parallel: 8
+
+load:
+  api-profile:
+    request_path:
+      - api-profile
+      - auth
+      - profile
+    response_path:
+      - api-profile
+    count: 1000
+  api-auth:
+    request_path:
+      - api-auth
+      - auth
+    response_path:
+      - api-auth
+    count: 1000
+  parse-course:
+    request_path:
+      - api-profile
+      - api-auth
+      - auth
+      # back to api-auth, api-profile
+      - profile
+      - course-parser
+    response_path:
+      - profile
+    count: 100
+  static:
+    request_path:
+      - storage
+    count: 1000
+
+scale: 1s
+parallel: 8
+rps: 10000
