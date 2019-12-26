@@ -5,6 +5,7 @@ services:
     max_client_conn: 128
     request_process_time: 3ms
     response_process_time: 3ms
+    parallel: 8
   api-auth:
     max_client_conn: 128
     request_process_time: 1ms

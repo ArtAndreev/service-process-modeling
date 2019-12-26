@@ -66,7 +66,8 @@ func (l *Loader) Run(wg *sync.WaitGroup) {
 
 	logger.Infof("ended loading, elapsed %s", time.Since(began))
 
-	aggregateStats(l.services, workers) // TODO:
+	logger.Info("counting stats...")
+	aggregateStats(l.cfg.Loads, l.services, workers)
 }
 
 func (l *Loader) runLoadWorkers(wg *sync.WaitGroup, loadCh <-chan *client.Client) []*worker {
@@ -85,28 +86,128 @@ func (l *Loader) runLoadWorkers(wg *sync.WaitGroup, loadCh <-chan *client.Client
 	return workers
 }
 
-func aggregateStats(services map[string]*service.Service, workers []*worker) {
+// nolint:funlen // TODO: decompose
+func aggregateStats(loadInfos map[string]*client.Config, services map[string]*service.Service, workers []*worker) {
+	type simpleStat struct {
+		Successful int
+		Failed     int
+	}
+
+	aggrStats := make(map[string]map[string]*simpleStat, 10) // map[requestName]map[nodeName]successful/failed
+
+	logger.Infof("=== Stats per services ===")
+
 	for n, s := range services {
 		logger.Infof("--- %s ---", n)
 		logger.Infof("Successful:")
+
 		for reqName, sucStat := range s.Stat.Successful {
-			logger.Infof("%s: %d times", reqName, sucStat.Count)
+			logger.Infof("%s: %d times (%.2f%%)", reqName, sucStat.Count,
+				(float32(sucStat.Count)/float32(loadInfos[reqName].Count))*100.0,
+			)
+
+			req, ok := aggrStats[reqName]
+			if !ok {
+				req = make(map[string]*simpleStat, 10)
+				aggrStats[reqName] = req
+			}
+
+			node, ok := req[""]
+			if !ok {
+				node = new(simpleStat)
+				req[""] = node
+			}
+
+			node.Successful += sucStat.Count
 		}
+
 		logger.Infof("Failed:")
+
 		for reqName, failStat := range s.Stat.Failed {
-			logger.Infof("%s: sent to %s %d times", reqName, failStat.Node, failStat.Count)
+			logger.Infof("%s: sent to %s %d times (%.2f%%)", reqName, failStat.Node, failStat.Count,
+				(float32(failStat.Count)/float32(loadInfos[reqName].Count))*100.0,
+			)
+
+			req, ok := aggrStats[reqName]
+			if !ok {
+				req = make(map[string]*simpleStat, 10)
+				aggrStats[reqName] = req
+			}
+
+			node, ok := req[failStat.Node]
+			if !ok {
+				node = new(simpleStat)
+				req[failStat.Node] = node
+			}
+
+			node.Failed += failStat.Count
 		}
 	}
+
+	logger.Infof("=== Stats per workers ===")
 
 	for i, w := range workers {
 		logger.Infof("--- worker #%d ---", i)
 		logger.Infof("Successful:")
+
 		for reqName, sucStat := range w.Stat.Successful {
-			logger.Infof("%s: %d times", reqName, sucStat.Count)
+			logger.Infof("%s: %d times (%.2f%%)", reqName, sucStat.Count,
+				(float32(sucStat.Count)/float32(loadInfos[reqName].Count))*100.0,
+			)
+
+			req, ok := aggrStats[reqName]
+			if !ok {
+				req = make(map[string]*simpleStat, 10)
+				aggrStats[reqName] = req
+			}
+
+			node, ok := req[""]
+			if !ok {
+				node = new(simpleStat)
+				req[""] = node
+			}
+
+			node.Successful += sucStat.Count
 		}
+
 		logger.Infof("Failed:")
+
 		for reqName, failStat := range w.Stat.Failed {
-			logger.Infof("%s: sent to %s %d times", reqName, failStat.Node, failStat.Count)
+			logger.Infof("%s: sent to %s %d times (%.2f%%)", reqName, failStat.Node, failStat.Count,
+				(float32(failStat.Count)/float32(loadInfos[reqName].Count))*100.0,
+			)
+
+			req, ok := aggrStats[reqName]
+			if !ok {
+				req = make(map[string]*simpleStat, 10)
+				aggrStats[reqName] = req
+			}
+
+			node, ok := req[failStat.Node]
+			if !ok {
+				node = new(simpleStat)
+				req[failStat.Node] = node
+			}
+
+			node.Failed += failStat.Count
+		}
+	}
+
+	logger.Infof("=== Aggregated stats ===")
+
+	for reqName, nodes := range aggrStats {
+		logger.Infof("--- Request %s ---", reqName)
+
+		for node, nodeStat := range nodes {
+			if node != "" {
+				logger.Infof("Node %s: failed %d times (%.2f%%)", node,
+					nodeStat.Failed, (float32(nodeStat.Failed)/float32(loadInfos[reqName].Count))*100.0,
+				)
+			} else {
+				logger.Infof("Successful %d times (%.2f%%)",
+					nodeStat.Successful, (float32(nodeStat.Successful)/float32(loadInfos[reqName].Count))*100.0,
+				)
+			}
 		}
 	}
 }
